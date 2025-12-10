@@ -1,0 +1,5 @@
+{
+  "name": "Pavel AI Tools",
+  "description": "A powerful browser-based IDE clone capable of simulating code execution for multiple languages using Google Gemini AI. Features a full file explorer, Monaco editor, and integrated terminal.",
+  "requestFramePermissions": []
+}
