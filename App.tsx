@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Play, Terminal as TerminalIcon, Bot, Save, Moon, Sun, Github, GitBranch, Share2, MessageSquare, LayoutTemplate, User, Users, Globe, ChevronDown, CheckCircle, Code2 } from 'lucide-react';
+import { Play, Terminal as TerminalIcon, Bot, Save, Moon, Sun, Github, GitBranch, Share2, MessageSquare, LayoutTemplate, User, Users, Globe, ChevronDown, CheckCircle, Code2, Loader2 } from 'lucide-react';
 import { FileExplorer, FileExplorerRef } from './components/FileExplorer';
 import { CodeEditor } from './components/CodeEditor';
 import { Terminal } from './components/Terminal';
@@ -11,7 +11,7 @@ import { CommandPalette, CommandItem } from './components/CommandPalette';
 import { executeCode, chatWithAi, generateFileContent, analyzeProject, generateImage } from './services/geminiService';
 import { FileSystem, FileNode, Tab, TerminalMessage, ChatMessage, PanelMode } from './types';
 import { INITIAL_FILES, LANGUAGE_MAP } from './constants';
-import { GitHubUser, getCurrentUser } from './services/githubService';
+import { getCurrentUser, type GitHubUser } from './services/githubService';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -49,6 +49,7 @@ export default function App() {
   const [isPreviewActive, setIsPreviewActive] = useState(false);
   const [previewTrigger, setPreviewTrigger] = useState(0);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
   
   // Modals & User
   const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
@@ -82,8 +83,13 @@ export default function App() {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      localStorage.setItem('pavel-ai-tools-files', JSON.stringify(filesRef.current));
-      setLastSaved(new Date());
+      setIsAutoSaving(true);
+      // Small delay to make the visual indicator noticeable
+      setTimeout(() => {
+        localStorage.setItem('pavel-ai-tools-files', JSON.stringify(filesRef.current));
+        setLastSaved(new Date());
+        setIsAutoSaving(false);
+      }, 800);
     }, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -447,13 +453,20 @@ export default function App() {
             <GitBranch size={10} />
             <span>main</span>
           </div>
-          <div className="flex items-center space-x-1">
-             {lastSaved ? (
+          <div className="flex items-center space-x-2 min-w-[120px]">
+             {isAutoSaving ? (
+                 <>
+                    <Loader2 size={10} className="animate-spin text-amber-300" />
+                    <span className="text-amber-100">Saving...</span>
+                 </>
+             ) : lastSaved ? (
                  <>
                     <CheckCircle size={10} className="text-green-300" />
                     <span>Saved {lastSaved.toLocaleTimeString()}</span>
                  </>
-             ) : <span>Unsaved</span>}
+             ) : (
+                 <span className="opacity-50">Ready</span>
+             )}
           </div>
         </div>
         <div className="flex items-center space-x-4">

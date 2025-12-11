@@ -16,7 +16,10 @@ import {
   Sparkles,
   Plus,
   Save,
-  CloudUpload
+  CloudUpload,
+  MoreVertical,
+  Pencil,
+  Trash
 } from 'lucide-react';
 
 interface FileExplorerProps {
@@ -69,7 +72,7 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
   files, 
   activeFileId, 
   onFileSelect, 
-  onFileCreate,
+  onFileCreate, 
   onAiFileCreate,
   onDelete,
   onToggleFolder,
@@ -90,6 +93,8 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; nodeId: string } | null>(null);
+
   // Helper to handle header creation logic
   const handleHeaderCreate = (type: 'file' | 'folder' | 'ai-file') => {
     let parentId = 'root';
@@ -97,9 +102,13 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
     if (targetId) {
       const activeNode = files.find(f => f.id === targetId);
       if (activeNode) {
-        parentId = activeNode.parentId || 'root';
+        parentId = activeNode.type === 'folder' ? activeNode.id : (activeNode.parentId || 'root');
       }
     }
+    initiateCreation(type, parentId);
+  };
+
+  const initiateCreation = (type: 'file' | 'folder' | 'ai-file', parentId: string) => {
     if (parentId !== 'root') {
       const parentNode = files.find(f => f.id === parentId);
       if (parentNode && !parentNode.isOpen) onToggleFolder(parentId);
@@ -126,6 +135,7 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
   useEffect(() => {
     if (editingId && editInputRef.current) {
       editInputRef.current.focus();
+      editInputRef.current.select();
     }
   }, [editingId]);
 
@@ -144,7 +154,13 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
       }
     };
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    const handleClick = () => setContextMenu(null);
+    window.addEventListener('click', handleClick);
+    
+    return () => {
+        window.removeEventListener('keydown', handleKeyDown);
+        window.removeEventListener('click', handleClick);
+    };
   }, [selectedNodeId, editingId, files]);
 
   const handleCreateSubmit = (e: React.FormEvent | React.KeyboardEvent) => {
@@ -167,6 +183,7 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
     e?.stopPropagation();
     setEditingId(node.id);
     setEditValue(node.name);
+    setContextMenu(null);
   };
 
   const confirmRename = () => {
@@ -181,15 +198,49 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
     confirmRename();
   };
 
+  const handleRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+        e.stopPropagation();
+        setEditingId(null);
+    } else if (e.key === 'Enter') {
+        e.stopPropagation();
+        e.preventDefault();
+        confirmRename();
+    }
+  };
+
   const handleDragStart = (e: React.DragEvent, node: FileNode) => {
     e.dataTransfer.setData('fileId', node.id);
+    e.dataTransfer.effectAllowed = 'move';
+    // Visual feedback
+    if (e.currentTarget instanceof HTMLElement) {
+       e.currentTarget.style.opacity = '0.5';
+    }
     e.stopPropagation();
+  };
+  
+  const handleDragEnd = (e: React.DragEvent) => {
+      if (e.currentTarget instanceof HTMLElement) {
+          e.currentTarget.style.opacity = '1';
+      }
+      setDragOverFolderId(null);
   };
 
   const handleDragOver = (e: React.DragEvent, folderId: string) => {
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
     if (dragOverFolderId !== folderId) setDragOverFolderId(folderId);
+  };
+  
+  const handleDragLeave = (e: React.DragEvent, folderId: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Only clear if we are leaving the current highlighted folder and not entering a child
+      // Since this fires on the specific element, we can clear it.
+      if (dragOverFolderId === folderId) {
+          setDragOverFolderId(null);
+      }
   };
 
   const handleDrop = (e: React.DragEvent, targetFolderId: string) => {
@@ -197,7 +248,49 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
     e.stopPropagation();
     setDragOverFolderId(null);
     const draggedId = e.dataTransfer.getData('fileId');
-    if (draggedId && draggedId !== targetFolderId) onMove(draggedId, targetFolderId);
+    
+    // Simple check to prevent moving into itself (though parent check in Move logic handles circular)
+    if (draggedId && draggedId !== targetFolderId) {
+       onMove(draggedId, targetFolderId);
+    }
+  };
+
+  const handleContextMenu = (e: React.MouseEvent, node: FileNode | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ 
+        x: e.clientX, 
+        y: e.clientY, 
+        nodeId: node ? node.id : 'root' 
+    });
+    if (node) setSelectedNodeId(node.id);
+  };
+
+  const handleContextAction = (action: 'file' | 'folder' | 'ai-file' | 'rename' | 'delete') => {
+      if (!contextMenu) return;
+      const { nodeId } = contextMenu;
+      
+      const node = files.find(f => f.id === nodeId);
+      let parentId = 'root';
+      
+      if (node) {
+          parentId = node.type === 'folder' ? node.id : (node.parentId || 'root');
+      }
+
+      switch (action) {
+          case 'file':
+          case 'folder':
+          case 'ai-file':
+              initiateCreation(action, parentId);
+              break;
+          case 'rename':
+              if (node) startRenaming(null, node);
+              break;
+          case 'delete':
+              if (node) onDelete(node.id);
+              break;
+      }
+      setContextMenu(null);
   };
 
   const renderInputForm = (depth: number) => {
@@ -247,7 +340,7 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
                     }
                   }}
                   className="bg-indigo-900/50 text-xs text-white outline-none w-full px-1 py-1 rounded border border-indigo-700 placeholder-indigo-400"
-                  placeholder="Describe file purpose..."
+                  placeholder="Describe file purpose (e.g., 'A Python script to scrape data')"
                 />
             )}
         </div>
@@ -271,13 +364,18 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
           <div 
             draggable={!isEditing}
             onDragStart={(e) => handleDragStart(e, node)}
+            onDragEnd={handleDragEnd}
             onDragOver={(e) => isFolder ? handleDragOver(e, node.id) : undefined}
+            onDragLeave={(e) => isFolder ? handleDragLeave(e, node.id) : undefined}
             onDrop={(e) => isFolder ? handleDrop(e, node.id) : undefined}
+            onContextMenu={(e) => handleContextMenu(e, node)}
             className={`
-              flex items-center group px-3 py-1.5 cursor-pointer select-none text-sm transition-all rounded-r-md mr-2
-              ${isDragOver ? 'bg-indigo-400/30' : ''}
+              flex items-center group px-3 py-1.5 cursor-pointer select-none text-sm transition-all rounded-r-md mr-2 border border-transparent
+              ${isDragOver 
+                 ? 'bg-indigo-500/50 border-indigo-300 ring-1 ring-indigo-300 z-10' 
+                 : ''}
               ${isActive && !isEditing
-                ? 'bg-white/10 text-white font-medium border-l-2 border-green-400' 
+                ? 'bg-white/10 text-white font-medium border-l-2 border-l-green-400' 
                 : isSelected && !isEditing
                     ? 'bg-indigo-800/30 text-white'
                     : 'text-indigo-100 hover:bg-indigo-800/30 hover:text-white'}
@@ -294,7 +392,7 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
                 startRenaming(e, node);
             }}
           >
-            <div className="flex items-center flex-1 min-w-0">
+            <div className="flex items-center flex-1 min-w-0 pointer-events-none">
               {isFolder && (
                 <span className="mr-1.5 opacity-70">
                   {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
@@ -310,14 +408,16 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
               </span>
               
               {isEditing ? (
-                 <form onSubmit={handleRenameSubmit} className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                 <form onSubmit={handleRenameSubmit} className="flex-1 min-w-0 pointer-events-auto" onClick={e => e.stopPropagation()}>
                     <input
                       ref={editInputRef}
                       type="text"
                       value={editValue}
                       onChange={(e) => setEditValue(e.target.value)}
                       onBlur={confirmRename}
-                      className="bg-indigo-900 text-sm text-white outline-none w-full border border-indigo-400 rounded px-1 py-0.5"
+                      onKeyDown={handleRenameKeyDown}
+                      onClick={(e) => e.stopPropagation()}
+                      className="bg-white/10 text-sm text-white outline-none w-full border border-indigo-300 rounded px-1 py-0.5 shadow-sm focus:ring-1 focus:ring-indigo-400"
                     />
                  </form>
               ) : (
@@ -326,25 +426,25 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
             </div>
 
             {!isEditing && (
-                <div className="hidden group-hover:flex items-center space-x-1 opacity-80">
+                <div className="hidden group-hover:flex items-center space-x-1 opacity-80 pointer-events-auto">
                 {isFolder && (
                     <>
                     <button 
-                        onClick={(e) => { e.stopPropagation(); setNewFileParent(node.id); setNewFileType('file'); }} 
+                        onClick={(e) => { e.stopPropagation(); initiateCreation('file', node.id); }} 
                         className="p-1 hover:text-green-300"
                         title="New File"
                     >
                         <FilePlus size={12} />
                     </button>
                     <button 
-                        onClick={(e) => { e.stopPropagation(); setNewFileParent(node.id); setNewFileType('ai-file'); }} 
+                        onClick={(e) => { e.stopPropagation(); initiateCreation('ai-file', node.id); }} 
                         className="p-1 hover:text-purple-300"
                         title="New AI File"
                     >
                         <Sparkles size={12} />
                     </button>
                     <button 
-                        onClick={(e) => { e.stopPropagation(); setNewFileParent(node.id); setNewFileType('folder'); }} 
+                        onClick={(e) => { e.stopPropagation(); initiateCreation('folder', node.id); }} 
                         className="p-1 hover:text-blue-300"
                         title="New Folder"
                     >
@@ -366,7 +466,7 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
   };
 
   return (
-    <div className="flex flex-col h-full bg-indigo-600 w-64 select-none flex-shrink-0 shadow-xl z-20">
+    <div className="flex flex-col h-full bg-indigo-600 w-64 select-none flex-shrink-0 shadow-xl z-20 relative">
       {/* Sidebar Header */}
       <div className="p-4 bg-indigo-700/50">
           <h2 className="text-sm font-bold text-white uppercase tracking-wider mb-3">Project Files</h2>
@@ -407,7 +507,10 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
       </div>
 
       {/* File Tree */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar-indigo py-2">
+      <div 
+        className="flex-1 overflow-y-auto custom-scrollbar-indigo py-2"
+        onContextMenu={(e) => handleContextMenu(e, null)}
+      >
         {newFileParent === 'root' && renderInputForm(0)}
         {renderTree('root')}
       </div>
@@ -417,6 +520,31 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
           <p>Pavel AI Tools</p>
           <p className="opacity-60 mt-1">v3.0.0 • Enterprise</p>
       </div>
+
+      {/* Context Menu */}
+      {contextMenu && (
+        <div 
+          className="fixed bg-white dark:bg-[#161b22] border border-gray-200 dark:border-gray-700 shadow-2xl rounded-lg py-1 z-50 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+        >
+          <button onClick={() => handleContextAction('file')} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 flex items-center gap-2">
+            <FilePlus size={14}/> New File
+          </button>
+          <button onClick={() => handleContextAction('ai-file')} className="w-full text-left px-4 py-2 text-sm text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 font-medium flex items-center gap-2">
+            <Sparkles size={14}/> New AI File
+          </button>
+          <button onClick={() => handleContextAction('folder')} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 flex items-center gap-2">
+            <FolderPlus size={14}/> New Folder
+          </button>
+          <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+          <button onClick={() => handleContextAction('rename')} className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 hover:text-indigo-600 flex items-center gap-2">
+            <Pencil size={14}/> Rename
+          </button>
+          <button onClick={() => handleContextAction('delete')} className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 flex items-center gap-2">
+            <Trash size={14}/> Delete
+          </button>
+        </div>
+      )}
     </div>
   );
 });
