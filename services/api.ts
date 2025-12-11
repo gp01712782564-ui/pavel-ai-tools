@@ -1,9 +1,14 @@
 import axios from 'axios';
 
-// Safely access env vars to prevent runtime errors if import.meta.env is missing
+// Robustly get API URL to prevent runtime errors if import.meta.env is undefined
 const getApiUrl = (): string => {
   try {
-    return (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:5000';
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    }
+    return 'http://localhost:5000';
   } catch (e) {
     return 'http://localhost:5000';
   }

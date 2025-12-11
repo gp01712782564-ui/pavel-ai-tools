@@ -22,7 +22,12 @@ const getFullPath = (node: FileNode, allFiles: FileSystem): string | null => {
 // Safely get API URL avoiding "Cannot read properties of undefined"
 const getBaseUrl = (): string => {
   try {
-    return (import.meta as any)?.env?.VITE_API_URL || 'http://localhost:5000';
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      // @ts-ignore
+      return import.meta.env.VITE_API_URL || 'http://localhost:5000';
+    }
+    return 'http://localhost:5000';
   } catch {
     return 'http://localhost:5000';
   }
@@ -34,7 +39,7 @@ export const loginWithGitHub = () => {
   window.location.href = `${backendUrl}/auth/github`;
 };
 
-// 2. Get User
+// 2. Get User - Explicitly exported to fix build error
 export const getCurrentUser = async (): Promise<GitHubUser> => {
   const response = await api.get('/auth/me');
   return response.data;

@@ -60,6 +60,7 @@ export default function App() {
   const fileExplorerRef = useRef<FileExplorerRef>(null);
   const activeTab = tabs.find(t => t.id === activeTabId);
   const activeFile = activeTab ? files.find(f => f.id === activeTab.fileId) : undefined;
+  const isFirstRender = useRef(true);
 
   // --- Effects ---
   useEffect(() => { filesRef.current = files; }, [files]);
@@ -81,18 +82,28 @@ export default function App() {
     }
   }, [isDarkMode]);
 
+  // Enhanced Auto-save: Debounce on file changes instead of rigid interval
   useEffect(() => {
-    const interval = setInterval(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    const timer = setTimeout(() => {
       setIsAutoSaving(true);
-      // Small delay to make the visual indicator noticeable
+      
+      // Perform save
+      localStorage.setItem('pavel-ai-tools-files', JSON.stringify(files));
+      
+      // Add slight delay for visual feedback
       setTimeout(() => {
-        localStorage.setItem('pavel-ai-tools-files', JSON.stringify(filesRef.current));
         setLastSaved(new Date());
         setIsAutoSaving(false);
-      }, 800);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
+      }, 600);
+    }, 2000); // 2 second debounce
+
+    return () => clearTimeout(timer);
+  }, [files]);
 
   // --- Auth & OAuth Callback Handling ---
   useEffect(() => {
@@ -457,7 +468,7 @@ export default function App() {
              {isAutoSaving ? (
                  <>
                     <Loader2 size={10} className="animate-spin text-amber-300" />
-                    <span className="text-amber-100">Saving...</span>
+                    <span className="text-amber-100 font-semibold">Saving...</span>
                  </>
              ) : lastSaved ? (
                  <>
