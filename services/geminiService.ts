@@ -1,11 +1,23 @@
 import { GoogleGenAI } from "@google/genai";
 import { ExecutionResult, FileSystem } from "../types";
 
-const apiKey = process.env.API_KEY || '';
+// Safely retrieve API Key preventing "process is not defined" crash in Vite
+const getApiKey = () => {
+  try {
+    if (typeof process !== 'undefined' && process.env) {
+      return process.env.API_KEY || '';
+    }
+  } catch (e) {
+    // Ignore error
+  }
+  return '';
+};
+
+const apiKey = getApiKey();
 const ai = new GoogleGenAI({ apiKey });
 
 export const executeCode = async (code: string, language: string): Promise<ExecutionResult> => {
-  if (!apiKey) return { output: "Error: API_KEY is missing.", error: true };
+  if (!apiKey) return { output: "Error: API_KEY is missing. Please configure your environment.", error: true };
 
   try {
     const prompt = `

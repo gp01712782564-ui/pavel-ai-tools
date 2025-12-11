@@ -23,14 +23,14 @@ const getFullPath = (node: FileNode, allFiles: FileSystem): string | null => {
 const getBaseUrl = (): string => {
   try {
     // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) {
       // @ts-ignore
-      return import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      return import.meta.env.VITE_API_URL;
     }
-    return 'http://localhost:5000';
   } catch {
-    return 'http://localhost:5000';
+    // Ignore
   }
+  return 'http://localhost:5000';
 };
 
 // 1. Login

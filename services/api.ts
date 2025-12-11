@@ -1,17 +1,17 @@
 import axios from 'axios';
 
-// Robustly get API URL to prevent runtime errors if import.meta.env is undefined
+// Robustly get API URL to prevent runtime errors
 const getApiUrl = (): string => {
   try {
     // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) {
       // @ts-ignore
-      return import.meta.env.VITE_API_URL || 'http://localhost:5000';
+      return import.meta.env.VITE_API_URL;
     }
-    return 'http://localhost:5000';
   } catch (e) {
-    return 'http://localhost:5000';
+    // Ignore error and fall back
   }
+  return 'http://localhost:5000';
 };
 
 const API_URL = getApiUrl();
