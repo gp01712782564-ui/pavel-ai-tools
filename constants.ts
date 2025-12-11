@@ -1,3 +1,4 @@
+
 import { FileSystem, SupportedLanguage } from './types';
 
 export const INITIAL_FILES: FileSystem = [
@@ -18,9 +19,7 @@ export const INITIAL_FILES: FileSystem = [
 
 def guess_number():
     target = random.randint(1, 100)
-    print(f"I'm thinking of a number between 1 and 100 (It's {target})")
-    
-    # Simulate a game loop
+    print(f"I'm thinking of a number between 1 and 100.")
     attempts = [50, 25, 75, target]
     
     for guess in attempts:
@@ -35,8 +34,6 @@ def guess_number():
 
 guess_number()`
   },
-
-  // Web Project
   {
     id: 'index.html',
     name: 'index.html',
@@ -51,26 +48,31 @@ guess_number()`
     <title>Pavel AI Tools Preview</title>
     <style>
         body { font-family: 'Inter', sans-serif; background: #f0f9ff; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-        .card { background: white; padding: 2.5rem; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); text-align: center; max-width: 400px; }
-        h1 { color: #4f46e5; margin-bottom: 1rem; }
-        p { color: #6b7280; margin-bottom: 2rem; }
-        button { background: #4f46e5; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-size: 1rem; font-weight: 600; transition: transform 0.1s; }
-        button:hover { background: #4338ca; transform: scale(1.05); }
-        button:active { transform: scale(0.95); }
+        .card { background: white; padding: 3rem; border-radius: 20px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); text-align: center; max-width: 450px; }
+        h1 { color: #4f46e5; margin-bottom: 0.5rem; font-weight: 800; }
+        .subtitle { color: #6b7280; font-size: 0.9rem; margin-bottom: 2rem; }
+        .counter-box { font-size: 3rem; font-weight: 900; color: #111827; margin: 2rem 0; font-family: 'JetBrains Mono', monospace; }
+        button { background: #4f46e5; color: white; border: none; padding: 14px 28px; border-radius: 12px; cursor: pointer; font-size: 1rem; font-weight: 600; transition: all 0.2s; box-shadow: 0 4px 6px -1px rgba(79, 70, 229, 0.2); }
+        button:hover { background: #4338ca; transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.3); }
+        button:active { transform: translateY(0); }
     </style>
 </head>
 <body>
     <div class="card">
-        <h1>Welcome to Pavel AI Tools</h1>
-        <p>This is a live preview of your web application running in the browser.</p>
-        <button id="counter">Clicks: 0</button>
+        <h1>Pavel AI Tools</h1>
+        <p class="subtitle">Full-Stack Cloud IDE Environment</p>
+        <div class="counter-box" id="display">0</div>
+        <button id="counter">Increment Counter</button>
     </div>
     <script>
         const btn = document.getElementById('counter');
+        const display = document.getElementById('display');
         let count = 0;
         btn.addEventListener('click', () => {
             count++;
-            btn.textContent = 'Clicks: ' + count;
+            display.textContent = count;
+            display.style.transform = 'scale(1.2)';
+            setTimeout(() => display.style.transform = 'scale(1)', 150);
         });
     </script>
 </body>
@@ -78,7 +80,10 @@ guess_number()`
   },
 
   // --- Backend Structure (Node.js + Express + MongoDB + Docker) ---
-  { id: 'backend', name: 'backend', type: 'folder', parentId: 'root', isOpen: false },
+  { id: 'backend', name: 'backend', type: 'folder', parentId: 'root', isOpen: true },
+  { id: 'routes', name: 'routes', type: 'folder', parentId: 'backend', isOpen: true },
+  { id: 'models', name: 'models', type: 'folder', parentId: 'backend', isOpen: true },
+  
   {
     id: 'server.js',
     name: 'server.js',
@@ -88,80 +93,409 @@ guess_number()`
     content: `const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const http = require('http');
+const helmet = require('helmet');
+const compression = require('compression');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
+// Route Imports
+const authRoutes = require('./routes/auth');
+const githubRoutes = require('./routes/github');
+
 const app = express();
-app.use(cors());
-app.use(express.json());
+const server = http.createServer(app);
 
-// MongoDB Connection
-mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('MongoDB Connected'))
-  .catch(err => console.error(err));
+// --- Production Security & Optimization ---
+app.use(helmet()); 
+app.use(compression());
+app.use(express.json({ limit: '50mb' })); 
 
-// Routes
-app.get('/', (req, res) => {
-  res.send('Pavel AI Tools Backend is Running');
+// CORS
+const allowedOrigins = [process.env.FRONTEND_URL, 'http://localhost:3000', 'http://127.0.0.1:3000'];
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Fallback for dev
+    }
+  },
+  credentials: true
+}));
+
+// Socket.IO
+const io = new Server(server, {
+  cors: { 
+    origin: process.env.FRONTEND_URL || '*', 
+    methods: ['GET', 'POST'] 
+  }
 });
 
+io.on('connection', (socket) => {
+  console.log('User Connected:', socket.id);
+  socket.on('code_change', (data) => socket.broadcast.emit('code_update', data));
+  socket.on('disconnect', () => console.log('User Disconnected'));
+});
+
+// DB
+mongoose.connect(process.env.MONGO_URI, { 
+  useNewUrlParser: true, 
+  useUnifiedTopology: true 
+})
+.then(() => console.log('✅ MongoDB Connected'))
+.catch(err => console.error('❌ MongoDB Connection Error:', err));
+
+// Routes
+app.get('/', (req, res) => res.send('Pavel AI Tools API'));
+app.use('/auth', authRoutes);
+app.use('/api/github', githubRoutes);
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(\`Server running on port \${PORT}\`));`
+server.listen(PORT, () => console.log(\`🚀 Server running on port \${PORT}\`));`
   },
+
+  {
+    id: 'package.json',
+    name: 'package.json',
+    type: 'file',
+    language: SupportedLanguage.JSON,
+    parentId: 'backend',
+    content: `{
+  "name": "pavel-ai-tools-backend",
+  "version": "1.0.0",
+  "description": "Production Backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.6.0",
+    "compression": "^1.7.4",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^7.6.3",
+    "socket.io": "^4.7.2"
+  }
+}`
+  },
+
+  {
+    id: 'User.js',
+    name: 'User.js',
+    type: 'file',
+    language: SupportedLanguage.JAVASCRIPT,
+    parentId: 'models',
+    content: `const mongoose = require('mongoose');
+
+const UserSchema = new mongoose.Schema({
+  githubId: { type: String, required: true, unique: true },
+  username: { type: String, required: true },
+  avatarUrl: { type: String },
+  accessToken: { type: String, required: true },
+}, { timestamps: true });
+
+module.exports = mongoose.model('User', UserSchema);`
+  },
+
+  {
+    id: 'auth.js',
+    name: 'auth.js',
+    type: 'file',
+    language: SupportedLanguage.JAVASCRIPT,
+    parentId: 'routes',
+    content: `const router = require('express').Router();
+const axios = require('axios');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+
+router.get('/github', (req, res) => {
+  // REQUEST WORKFLOW SCOPE TO FIX SYNC ISSUES AND REPO ACCESS
+  const url = \`https://github.com/login/oauth/authorize?client_id=\${process.env.GITHUB_CLIENT_ID}&scope=repo,user:email,workflow\`;
+  res.redirect(url);
+});
+
+router.get('/github/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.status(400).send('No code');
+
+  try {
+    const tokenRes = await axios.post('https://github.com/login/oauth/access_token', {
+      client_id: process.env.GITHUB_CLIENT_ID,
+      client_secret: process.env.GITHUB_CLIENT_SECRET,
+      code
+    }, { headers: { Accept: 'application/json' } });
+
+    const accessToken = tokenRes.data.access_token;
+    if (!accessToken) throw new Error('Failed to get access token');
+
+    const userRes = await axios.get('https://api.github.com/user', {
+      headers: { Authorization: \`token \${accessToken}\` }
+    });
+
+    const { id, login, avatar_url } = userRes.data;
+
+    let user = await User.findOne({ githubId: id });
+    if (!user) {
+      user = new User({ githubId: id, username: login, avatarUrl: avatar_url, accessToken });
+    } else {
+      user.accessToken = accessToken;
+      user.username = login;
+      user.avatarUrl = avatar_url;
+    }
+    await user.save();
+
+    const token = jwt.sign({ userId: user._id, username: user.username }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    res.redirect(\`\${process.env.FRONTEND_URL}?token=\${token}\`);
+    
+  } catch (err) {
+    console.error('OAuth Error:', err.message);
+    res.redirect(\`\${process.env.FRONTEND_URL}?error=auth_failed\`);
+  }
+});
+
+router.get('/me', async (req, res) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'No token' });
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.userId).select('-accessToken');
+    res.json(user);
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+});
+
+module.exports = router;`
+  },
+
+  {
+    id: 'github.js',
+    name: 'github.js',
+    type: 'file',
+    language: SupportedLanguage.JAVASCRIPT,
+    parentId: 'routes',
+    content: `const router = require('express').Router();
+const axios = require('axios');
+const jwt = require('jsonwebtoken');
+const User = require('../models/User');
+
+const AUTO_REPO_NAME = 'pavel-ai-tools-project';
+
+// Middleware
+const verifyToken = async (req, res, next) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = await User.findById(decoded.userId);
+    if (!req.user) return res.status(401).json({ error: 'User not found' });
+    next();
+  } catch (err) {
+    res.status(401).json({ error: 'Invalid Token' });
+  }
+};
+
+// Helper: Get Branch SHA with Fallback
+const getBranchSha = async (username, repo, headers) => {
+  try {
+    const res = await axios.get(\`https://api.github.com/repos/\${username}/\${repo}/git/ref/heads/main\`, { headers });
+    return { sha: res.data.object.sha, branch: 'main' };
+  } catch (e) {
+    try {
+      const res = await axios.get(\`https://api.github.com/repos/\${username}/\${repo}/git/ref/heads/master\`, { headers });
+      return { sha: res.data.object.sha, branch: 'master' };
+    } catch (e2) {
+      return null; 
+    }
+  }
+};
+
+// ATOMIC PUSH Using Git Data API (Blobs -> Tree -> Commit -> Ref)
+router.post('/push', verifyToken, async (req, res) => {
+  const { files } = req.body; 
+  const { accessToken, username } = req.user;
+  const REPO = AUTO_REPO_NAME;
+  
+  const headers = { 
+    Authorization: \`token \${accessToken}\`, 
+    Accept: 'application/vnd.github.v3+json' 
+  };
+
+  try {
+    // 1. Ensure Repo Exists
+    try {
+      await axios.get(\`https://api.github.com/repos/\${username}/\${REPO}\`, { headers });
+    } catch (e) {
+      if (e.response?.status === 404) {
+         await axios.post('https://api.github.com/user/repos', { 
+           name: REPO, 
+           description: 'Created with Pavel AI Tools',
+           auto_init: true
+         }, { headers });
+         await new Promise(r => setTimeout(r, 2000));
+      } else {
+        throw e;
+      }
+    }
+
+    // 2. Get Branch Reference
+    let refData = await getBranchSha(username, REPO, headers);
+    
+    // Init if empty
+    if (!refData) {
+        try {
+            await axios.put(\`https://api.github.com/repos/\${username}/\${REPO}/contents/README.md\`, {
+                message: "Initial commit",
+                content: Buffer.from("# Pavel AI Tools Project").toString('base64')
+            }, { headers });
+            await new Promise(r => setTimeout(r, 1000));
+            refData = await getBranchSha(username, REPO, headers);
+        } catch (initErr) {
+             throw new Error("Failed to initialize repository.");
+        }
+    }
+
+    if (!refData) throw new Error("Could not find a valid branch (main/master).");
+
+    const { sha: latestCommitSha, branch } = refData;
+
+    // 3. Create Blobs in Parallel (Faster & Consistent)
+    const treeItems = [];
+    
+    // Process blobs in chunks if needed, but here Promise.all is usually fine for <100 files
+    const blobPromises = files.map(async (file) => {
+        try {
+            const blobRes = await axios.post(\`https://api.github.com/repos/\${username}/\${REPO}/git/blobs\`, {
+                content: file.content,
+                encoding: 'utf-8'
+            }, { headers });
+            
+            return {
+                path: file.path,
+                mode: '100644', 
+                type: 'blob',
+                sha: blobRes.data.sha
+            };
+        } catch (blobErr) {
+            console.error(\`Blob creation failed for \${file.path}\`, blobErr.message);
+            return null;
+        }
+    });
+
+    const results = await Promise.all(blobPromises);
+    results.forEach(item => {
+        if (item) treeItems.push(item);
+    });
+
+    if (treeItems.length === 0) {
+        return res.status(400).json({ error: "No valid files to push" });
+    }
+
+    // 4. Create Tree
+    // Using base_tree ensures we only update changed files and keep others
+    const commitRes = await axios.get(\`https://api.github.com/repos/\${username}/\${REPO}/git/commits/\${latestCommitSha}\`, { headers });
+    const baseTreeSha = commitRes.data.tree.sha;
+
+    const treeRes = await axios.post(\`https://api.github.com/repos/\${username}/\${REPO}/git/trees\`, {
+        tree: treeItems,
+        base_tree: baseTreeSha 
+    }, { headers });
+    
+    const newTreeSha = treeRes.data.sha;
+
+    // 5. Create Commit
+    const newCommitRes = await axios.post(\`https://api.github.com/repos/\${username}/\${REPO}/git/commits\`, {
+        message: 'Deployed via Pavel AI Tools',
+        tree: newTreeSha,
+        parents: [latestCommitSha]
+    }, { headers });
+    
+    const newCommitSha = newCommitRes.data.sha;
+
+    // 6. Update HEAD
+    await axios.patch(\`https://api.github.com/repos/\${username}/\${REPO}/git/refs/heads/\${branch}\`, {
+        sha: newCommitSha
+    }, { headers });
+
+    res.json({ success: true, repoUrl: \`https://github.com/\${username}/\${REPO}\` });
+
+  } catch (err) {
+    console.error('GitHub Push Error:', err.response?.data || err.message);
+    const status = err.response?.status || 500;
+    const msg = err.response?.data?.message || err.message || 'Sync Failed';
+    
+    if (status === 401 || status === 403) {
+         return res.status(401).json({ error: 'Auth expired. Please logout and login again.' });
+    }
+    
+    res.status(status).json({ error: msg });
+  }
+});
+
+module.exports = router;`
+  },
+
   {
     id: 'Dockerfile',
     name: 'Dockerfile',
     type: 'file',
-    language: SupportedLanguage.MARKDOWN, // Treated as text for highlighting
+    language: SupportedLanguage.MARKDOWN,
     parentId: 'backend',
-    content: `# Use Node.js official image
-FROM node:18-alpine
-
-# Set working directory
+    content: `FROM node:18-alpine
 WORKDIR /app
-
-# Copy package files
 COPY package*.json ./
-
-# Install dependencies
 RUN npm install --production
-
-# Copy app source
 COPY . .
-
-# Expose port
 EXPOSE 5000
-
-# Start server
-CMD ["node", "server.js"]`
+CMD ["npm", "start"]`
   },
   {
     id: 'docker-compose.yml',
     name: 'docker-compose.yml',
     type: 'file',
-    language: SupportedLanguage.MARKDOWN, // YAML support simulated
+    language: SupportedLanguage.MARKDOWN,
     parentId: 'backend',
     content: `version: '3.8'
 services:
-  api:
+  backend:
     build: .
+    restart: always
     ports:
       - "5000:5000"
     environment:
       - MONGO_URI=mongodb://mongo:27017/pavel-ai-tools
+      - PORT=5000
+      - FRONTEND_URL=http://localhost:3000
+      - JWT_SECRET=production_secret_key
+      - GITHUB_CLIENT_ID=\${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=\${GITHUB_CLIENT_SECRET}
     depends_on:
       - mongo
   mongo:
     image: mongo:latest
-    ports:
-      - "27017:27017"
+    restart: always
     volumes:
       - mongo-data:/data/db
-
 volumes:
   mongo-data:`
   },
-  
-  // Readme
+  {
+    id: '.env.example',
+    name: '.env.example',
+    type: 'file',
+    language: SupportedLanguage.MARKDOWN,
+    parentId: 'backend',
+    content: `PORT=5000
+MONGO_URI=mongodb://mongo:27017/pavel-ai-tools
+JWT_SECRET=change_me
+FRONTEND_URL=https://your-frontend-app.com
+GITHUB_CLIENT_ID=get_from_github
+GITHUB_CLIENT_SECRET=get_from_github`
+  },
   {
     id: 'README.md',
     name: 'README.md',
@@ -170,24 +504,22 @@ volumes:
     parentId: 'root',
     content: `# Pavel AI Tools
 
-Welcome to the ultimate AI-powered cloud development environment.
+## Deployment Instructions
 
-## Project Structure
-- **/src**: Frontend logic (Python scripts, etc.)
-- **/public**: Web assets (HTML/CSS)
-- **/backend**: Node.js + Express API with MongoDB connection
-- **Docker**: Full containerization setup included
+### 1. Backend (Railway/Render)
+Deploy the \`backend\` folder. Set environment variables:
+- \`MONGO_URI\`: Your database string
+- \`FRONTEND_URL\`: Your Vercel URL
+- \`GITHUB_CLIENT_ID\`: From GitHub
+- \`GITHUB_CLIENT_SECRET\`: From GitHub
 
-## Features
-- **Multi-language**: Run Python, JS, C++
-- **AI-Powered**: Chat, Debug, Generate Code with Gemini 3 Pro
-- **GitHub Integration**: Login & Push directly to GitHub
-- **Collaboration**: Live sync enabled
+### 2. Frontend (Vercel)
+Deploy the frontend. Set environment variable:
+- \`VITE_API_URL\`: URL of your deployed backend
 
-## How to Run
-1. Explore the files in the sidebar.
-2. Click **Run** to execute scripts or preview the website.
-3. Use the **AI Chat** to generate new features.
+### 3. GitHub OAuth
+Set "Authorization callback URL" in GitHub to:
+\`https://YOUR_BACKEND_URL/auth/github/callback\`
 `
   }
 ];
@@ -204,6 +536,6 @@ export const LANGUAGE_MAP: Record<string, SupportedLanguage> = {
   'css': SupportedLanguage.CSS,
   'json': SupportedLanguage.JSON,
   'md': SupportedLanguage.MARKDOWN,
-  'yml': SupportedLanguage.MARKDOWN, // Map YAML to MD for now
+  'yml': SupportedLanguage.MARKDOWN, 
   'yaml': SupportedLanguage.MARKDOWN,
 };

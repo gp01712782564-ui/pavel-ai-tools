@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Play, Terminal as TerminalIcon, Bot, Save, Moon, Sun, Github, GitBranch, Share2, MessageSquare, LayoutTemplate, User, Users, Globe, ChevronDown, CheckCircle } from 'lucide-react';
+import { Play, Terminal as TerminalIcon, Bot, Save, Moon, Sun, Github, GitBranch, Share2, MessageSquare, LayoutTemplate, User, Users, Globe, ChevronDown, CheckCircle, Code2 } from 'lucide-react';
 import { FileExplorer, FileExplorerRef } from './components/FileExplorer';
 import { CodeEditor } from './components/CodeEditor';
 import { Terminal } from './components/Terminal';
@@ -11,7 +11,7 @@ import { CommandPalette, CommandItem } from './components/CommandPalette';
 import { executeCode, chatWithAi, generateFileContent, analyzeProject, generateImage } from './services/geminiService';
 import { FileSystem, FileNode, Tab, TerminalMessage, ChatMessage, PanelMode } from './types';
 import { INITIAL_FILES, LANGUAGE_MAP } from './constants';
-import { GitHubUser } from './services/githubService';
+import { GitHubUser, getCurrentUser } from './services/githubService';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -19,7 +19,7 @@ export default function App() {
   // --- State Initialization ---
   const [files, setFiles] = useState<FileSystem>(() => {
     try {
-      const saved = localStorage.getItem('ai-code-studio-files');
+      const saved = localStorage.getItem('pavel-ai-tools-files');
       return saved ? JSON.parse(saved) : INITIAL_FILES;
     } catch {
       return INITIAL_FILES;
@@ -28,7 +28,7 @@ export default function App() {
 
   const [isDarkMode, setIsDarkMode] = useState(() => {
     try {
-      return localStorage.getItem('ai-code-studio-theme') !== 'light';
+      return localStorage.getItem('pavel-ai-tools-theme') !== 'light';
     } catch {
       return true;
     }
@@ -73,28 +73,49 @@ export default function App() {
     const root = window.document.documentElement;
     if (isDarkMode) {
       root.classList.add('dark');
-      localStorage.setItem('ai-code-studio-theme', 'dark');
+      localStorage.setItem('pavel-ai-tools-theme', 'dark');
     } else {
       root.classList.remove('dark');
-      localStorage.setItem('ai-code-studio-theme', 'light');
+      localStorage.setItem('pavel-ai-tools-theme', 'light');
     }
   }, [isDarkMode]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      localStorage.setItem('ai-code-studio-files', JSON.stringify(filesRef.current));
+      localStorage.setItem('pavel-ai-tools-files', JSON.stringify(filesRef.current));
       setLastSaved(new Date());
     }, 30000);
     return () => clearInterval(interval);
   }, []);
 
+  // --- Auth & OAuth Callback Handling ---
   useEffect(() => {
-    const token = localStorage.getItem('github_pat');
-    if (token) {
-        import('./services/githubService').then(({ getGitHubUser }) => {
-            getGitHubUser(token).then(setGithubUser).catch(() => localStorage.removeItem('github_pat'));
-        });
-    }
+    const checkAuth = async () => {
+      // 1. Check for token in URL (Callback from Backend)
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get('token');
+      
+      if (urlToken) {
+        localStorage.setItem('pavel_auth_token', urlToken);
+        // Clean URL without reloading
+        window.history.replaceState({}, document.title, window.location.pathname);
+      }
+
+      // 2. Validate Token & Fetch User
+      const token = localStorage.getItem('pavel_auth_token');
+      if (token) {
+        try {
+          const user = await getCurrentUser();
+          setGithubUser(user);
+        } catch (err) {
+          console.error("Auth Error", err);
+          localStorage.removeItem('pavel_auth_token');
+          setGithubUser(null);
+        }
+      }
+    };
+    
+    checkAuth();
   }, []);
 
   // Command Palette Keyboard Listener
@@ -176,6 +197,15 @@ export default function App() {
     setFiles(prev => prev.map(f => f.id === fileId ? { ...f, content } : f));
   };
 
+  const handleChatFileCreate = (name: string, description: string) => {
+      let parentId = 'root';
+      if (activeFile) {
+          parentId = activeFile.type === 'folder' ? activeFile.id : (activeFile.parentId || 'root');
+      }
+      handleAiFileCreate(name, description, parentId);
+      addChatMessage(`Generating file "${name}"...`, 'model');
+  };
+
   const handleFileDelete = (fileId: string) => {
     setFiles(prev => prev.filter(f => f.id !== fileId));
     const tabToDelete = tabs.find(t => t.fileId === fileId);
@@ -224,6 +254,16 @@ export default function App() {
     addChatMessage(res.text, 'model', res.sources);
   };
 
+  const handleGenerateImage = async (prompt: string, size: '1K' | '2K' | '4K') => {
+      addChatMessage(`Generate an image: ${prompt} (${size})`, 'user');
+      const imgData = await generateImage(prompt, size);
+      if (imgData) {
+          addChatMessage("Here is your generated image:", 'model', undefined, imgData);
+      } else {
+          addChatMessage("Sorry, I couldn't generate that image. Please check your API key and try again.", 'model');
+      }
+  };
+
   const handleDebugProject = async () => {
      setShowPanel(true);
      setActivePanel('chat');
@@ -232,165 +272,211 @@ export default function App() {
      addChatMessage(res, 'model');
   };
 
-  // Commands Configuration
   const commands: CommandItem[] = useMemo(() => [
       { id: 'new-file', label: 'New File', category: 'File', action: () => fileExplorerRef.current?.triggerNewFile() },
       { id: 'new-folder', label: 'New Folder', category: 'File', action: () => fileExplorerRef.current?.triggerNewFolder() },
       { id: 'new-ai-file', label: 'New AI Generated File', category: 'File', action: () => fileExplorerRef.current?.triggerNewAiFile() },
-      { id: 'rename', label: 'Rename Active File', category: 'File', shortcut: 'F2', action: () => activeFile && fileExplorerRef.current?.triggerRename(activeFile.id) },
-      { id: 'save', label: 'Save Project', category: 'File', shortcut: 'Auto', action: () => setLastSaved(new Date()) },
-      
-      { id: 'run', label: 'Run Project', category: 'Project', shortcut: 'Play', action: handleRun },
-      { id: 'debug', label: 'Debug Project (AI)', category: 'Project', action: handleDebugProject },
-      { id: 'github', label: 'Push to GitHub', category: 'Project', action: () => setIsGitHubModalOpen(true) },
-      
-      { id: 'toggle-theme', label: `Switch to ${isDarkMode ? 'Light' : 'Dark'} Mode`, category: 'View', action: () => setIsDarkMode(prev => !prev) },
-      { id: 'toggle-panel', label: 'Toggle Side Panel', category: 'View', action: () => setShowPanel(prev => !prev) },
-      { id: 'open-preview', label: 'Open Web Preview', category: 'View', action: () => { setIsPreviewActive(true); setPreviewTrigger(p => p+1); } },
-      { id: 'open-terminal', label: 'Focus Terminal', category: 'View', action: () => { setShowPanel(true); setActivePanel('terminal'); setIsPreviewActive(false); } },
-      { id: 'open-chat', label: 'Open AI Chat', category: 'View', action: () => { setShowPanel(true); setActivePanel('chat'); setIsPreviewActive(false); } },
-  ], [activeFile, isDarkMode]);
+      { id: 'run', label: 'Run Project', category: 'Editor', shortcut: '⌘R', action: handleRun },
+      { id: 'save', label: 'Save Project', category: 'Editor', shortcut: '⌘S', action: () => localStorage.setItem('pavel-ai-tools-files', JSON.stringify(files)) },
+      { id: 'debug', label: 'Debug Project', category: 'AI', action: handleDebugProject },
+      { id: 'theme', label: 'Toggle Theme', category: 'View', action: () => setIsDarkMode(p => !p) },
+      { id: 'github', label: 'Sync to GitHub', category: 'Cloud', action: () => setIsGitHubModalOpen(true) },
+  ], [files, handleRun]);
 
   return (
-    <div className="flex h-screen bg-white dark:bg-[#0d1117] text-gray-900 dark:text-gray-300 font-sans overflow-hidden">
-      <GitHubModal isOpen={isGitHubModalOpen} onClose={() => setIsGitHubModalOpen(false)} files={files} user={githubUser} onLogout={() => { localStorage.removeItem('github_pat'); setGithubUser(null); }} />
-      <CommandPalette commands={commands} isOpen={isCommandPaletteOpen} onClose={() => setIsCommandPaletteOpen(false)} />
-
-      {/* --- Sidebar (Seller Friendly) --- */}
-      <FileExplorer 
-        ref={fileExplorerRef}
-        files={files} activeFileId={activeFile?.id || null}
-        onFileSelect={handleFileSelect} onFileCreate={handleFileCreate} onAiFileCreate={handleAiFileCreate}
-        onDelete={handleFileDelete} onToggleFolder={id => setFiles(prev => prev.map(f => f.id === id ? { ...f, isOpen: !f.isOpen } : f))}
-        onRename={handleRename} onMove={handleFileMove}
-        onOpenGitHub={() => setIsGitHubModalOpen(true)}
-      />
-
-      {/* --- Main Content --- */}
-      <div className="flex-1 flex flex-col min-w-0">
-        
-        {/* Colorful Navbar */}
-        <header className="h-16 bg-indigo-600 dark:bg-[#0d1117] border-b border-indigo-500 dark:border-gray-800 flex items-center justify-between px-6 shadow-md z-10 shrink-0">
-           {/* Logo Area */}
-           <div className="flex items-center space-x-3">
-               <h1 className="text-xl font-bold text-white tracking-tight">Pavel AI Tools</h1>
-               <div className="px-2 py-0.5 bg-indigo-500 rounded text-[10px] text-white font-semibold uppercase tracking-wider">Beta</div>
+    <div className="flex flex-col h-screen overflow-hidden bg-gray-50 dark:bg-[#0d1117] text-gray-900 dark:text-gray-200 transition-colors">
+      {/* Header */}
+      <header className="h-14 bg-indigo-600 border-b border-indigo-700 flex items-center justify-between px-4 shrink-0 shadow-md z-30">
+        <div className="flex items-center space-x-3">
+           <div className="bg-white p-1.5 rounded-lg shadow-sm">
+             <Code2 className="w-5 h-5 text-indigo-600" />
            </div>
-
-           {/* Center Actions */}
-           <div className="flex items-center space-x-4">
-              <button 
-                onClick={handleRun}
-                disabled={isRunning}
-                className={`flex items-center space-x-2 px-8 py-2.5 rounded-full font-bold shadow-lg transition-transform transform active:scale-95 ${isRunning ? 'bg-gray-400 cursor-not-allowed' : 'bg-white text-indigo-700 hover:bg-gray-100'}`}
-              >
-                  <Play size={18} fill="currentColor"/>
-                  <span>Run Project</span>
-              </button>
-           </div>
-
-           {/* Right Actions & Collaboration */}
-           <div className="flex items-center space-x-4">
-               {/* Live Collaboration Mockup */}
-               <div className="flex items-center -space-x-2 mr-4">
-                  <div className="w-8 h-8 rounded-full border-2 border-indigo-600 bg-yellow-400 flex items-center justify-center text-xs font-bold text-yellow-900" title="User A">A</div>
-                  <div className="w-8 h-8 rounded-full border-2 border-indigo-600 bg-green-400 flex items-center justify-center text-xs font-bold text-green-900" title="User B">B</div>
-                  <div className="w-8 h-8 rounded-full border-2 border-indigo-600 bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-600">+2</div>
-               </div>
-
-               <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 bg-indigo-500 text-white rounded-full hover:bg-indigo-400 transition-colors">
-                   {isDarkMode ? <Sun size={20} /> : <Moon size={20} />}
-               </button>
-
-               {githubUser ? (
-                 <div onClick={() => setIsGitHubModalOpen(true)} className="flex items-center space-x-2 cursor-pointer bg-indigo-700 hover:bg-indigo-800 py-1.5 px-3 rounded-full transition-colors">
-                    <img src={githubUser.avatar_url} alt="User" className="w-6 h-6 rounded-full border border-white"/>
-                    <span className="text-white text-sm font-medium">{githubUser.login}</span>
-                 </div>
-               ) : (
-                 <button onClick={() => setIsGitHubModalOpen(true)} className="flex items-center space-x-2 bg-gray-900 text-white px-4 py-2 rounded-full font-medium hover:bg-gray-800 transition-colors shadow-lg">
-                    <Github size={18} />
-                    <span>Login</span>
-                 </button>
-               )}
-           </div>
-        </header>
-
-        {/* Workspace */}
-        <div className="flex-1 flex min-h-0">
-           {/* Editor Area */}
-           <div className={`flex flex-col min-w-0 transition-all duration-300 ${isPreviewActive || showPanel ? 'w-1/2 border-r border-gray-200 dark:border-gray-800' : 'w-full'}`}>
-               <Tabs tabs={tabs} activeTabId={activeTabId} files={files} onTabClick={setActiveTabId} onTabClose={handleTabClose} />
-               <div className="flex-1 relative bg-white dark:bg-[#0d1117]">
-                  <CodeEditor activeFile={activeFile} onChange={handleCodeChange} theme={isDarkMode ? 'dark' : 'light'} />
-               </div>
-           </div>
-
-           {/* Right Panel */}
-           {(isPreviewActive || showPanel) && (
-              <div className="flex-1 flex flex-col min-w-0 bg-blue-50/50 dark:bg-[#0d1117]">
-                  {/* Panel Tabs */}
-                  <div className="h-10 flex items-center bg-gray-100 dark:bg-[#161b22] border-b border-gray-200 dark:border-gray-800 px-2 space-x-1">
-                      {isPreviewActive && (
-                        <button className="px-4 py-1.5 text-xs font-bold text-blue-600 dark:text-blue-400 bg-white dark:bg-[#0d1117] rounded-t-md border-t border-x border-gray-200 dark:border-gray-800 shadow-sm">
-                            <Globe size={12} className="inline mr-1"/> Web Preview
-                        </button>
-                      )}
-                      <button onClick={() => { setActivePanel('terminal'); setIsPreviewActive(false); }} className={`px-4 py-1.5 text-xs font-medium rounded-t-md transition-colors ${activePanel === 'terminal' && !isPreviewActive ? 'bg-white dark:bg-[#0d1117] text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                          Terminal
-                      </button>
-                      <button onClick={() => { setActivePanel('chat'); setIsPreviewActive(false); }} className={`px-4 py-1.5 text-xs font-medium rounded-t-md transition-colors ${activePanel === 'chat' && !isPreviewActive ? 'bg-white dark:bg-[#0d1117] text-purple-600 dark:text-purple-400 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                          AI Assistant
-                      </button>
-                  </div>
-                  
-                  {/* Content */}
-                  <div className="flex-1 relative overflow-hidden bg-white dark:bg-[#0d1117]">
-                      {isPreviewActive ? (
-                        <WebPreview {...{ html: files.find(f => f.name === 'index.html')?.content || '', css: files.find(f => f.name.endsWith('.css'))?.content, js: files.find(f => f.name.endsWith('.js') && f.name !== 'server.js')?.content, refreshTrigger: previewTrigger }} />
-                      ) : activePanel === 'terminal' ? (
-                        <Terminal messages={terminalMessages} isRunning={isRunning} onClear={() => setTerminalMessages([])} />
-                      ) : (
-                        <AIChatPanel 
-                          messages={chatMessages} 
-                          onSendMessage={handleAiChat} 
-                          onDebugProject={handleDebugProject}
-                          onGenerateImage={async (prompt, size) => {
-                             addChatMessage(`Generating ${size} image: ${prompt}`, 'user');
-                             const img = await generateImage(prompt, size);
-                             addChatMessage(img ? "Image generated successfully." : "Failed to generate image.", 'model', undefined, img || undefined);
-                          }}
-                          isLoading={chatMessages.length > 0 && chatMessages[chatMessages.length-1].role === 'user'} 
-                          onClose={() => setShowPanel(false)}
-                          activeFileName={activeFile?.name}
-                        />
-                      )}
-                  </div>
-              </div>
-           )}
+           <span className="font-bold text-lg text-white tracking-tight">Pavel AI Tools</span>
         </div>
 
-        {/* Status Footer */}
-        <footer className="h-8 bg-indigo-50 dark:bg-[#161b22] border-t border-gray-200 dark:border-gray-800 flex items-center justify-between px-4 text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">
-            <div className="flex items-center space-x-4">
-                <span className="flex items-center space-x-1.5">
-                   <GitBranch size={12} className="text-indigo-500"/>
-                   <span>main</span>
-                </span>
-                {lastSaved && (
-                   <span className="flex items-center space-x-1.5 text-green-600 dark:text-green-400">
-                      <CheckCircle size={12}/>
-                      <span>Saved {lastSaved.toLocaleTimeString()}</span>
-                   </span>
-                )}
-            </div>
-            <div className="flex items-center space-x-4">
-                <span>{activeFile ? `${activeFile.language || 'Text'} • UTF-8` : 'Ready'}</span>
-                <span>Ln {activeFile?.content?.split('\n').length || 0}, Col 1</span>
-            </div>
-        </footer>
+        <div className="flex items-center space-x-3">
+          {/* Collaboration UI */}
+          <div className="flex -space-x-2 mr-4">
+              <div className="w-7 h-7 rounded-full bg-blue-500 border-2 border-indigo-600 flex items-center justify-center text-[10px] text-white font-bold" title="You">YOU</div>
+              <div className="w-7 h-7 rounded-full bg-green-500 border-2 border-indigo-600 flex items-center justify-center text-[10px] text-white font-bold opacity-50" title="Teammate 1">TM</div>
+              <div className="w-7 h-7 rounded-full bg-gray-600 border-2 border-indigo-600 flex items-center justify-center text-[10px] text-white font-bold flex items-center justify-center">
+                  <Users size={10} />
+              </div>
+          </div>
 
+          <button 
+             onClick={() => setIsGitHubModalOpen(true)}
+             className={`
+               flex items-center space-x-2 px-3 py-1.5 rounded-md text-sm font-medium transition-all
+               ${githubUser 
+                 ? 'bg-gray-800 text-white hover:bg-gray-900 border border-gray-700' 
+                 : 'bg-white text-gray-900 hover:bg-gray-100 border border-transparent'}
+             `}
+          >
+             {githubUser ? (
+                 <>
+                    <img src={githubUser.avatar_url} alt="Profile" className="w-5 h-5 rounded-full" />
+                    <span>{githubUser.username}</span>
+                 </>
+             ) : (
+                 <>
+                    <Github size={16} />
+                    <span>Login</span>
+                 </>
+             )}
+          </button>
+
+          <button onClick={() => setIsDarkMode(!isDarkMode)} className="p-2 text-indigo-100 hover:text-white rounded-md hover:bg-indigo-700 transition-colors">
+            {isDarkMode ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          
+          <button onClick={() => setShowPanel(!showPanel)} className="p-2 text-indigo-100 hover:text-white rounded-md hover:bg-indigo-700 transition-colors">
+             <LayoutTemplate size={18} />
+          </button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar */}
+        <FileExplorer 
+          ref={fileExplorerRef}
+          files={files} 
+          activeFileId={activeFile?.id || null}
+          onFileSelect={handleFileSelect}
+          onFileCreate={handleFileCreate}
+          onAiFileCreate={handleAiFileCreate}
+          onDelete={handleFileDelete}
+          onToggleFolder={(id) => setFiles(prev => prev.map(f => f.id === id ? { ...f, isOpen: !f.isOpen } : f))}
+          onRename={handleRename}
+          onMove={handleFileMove}
+          onOpenGitHub={() => setIsGitHubModalOpen(true)}
+        />
+
+        {/* Editor Area */}
+        <div className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-[#0d1117] transition-colors relative">
+          <Tabs 
+            tabs={tabs} 
+            activeTabId={activeTabId} 
+            files={files} 
+            onTabClick={setActiveTabId} 
+            onTabClose={handleTabClose} 
+          />
+          <div className="flex-1 relative">
+            <CodeEditor 
+              activeFile={activeFile} 
+              onChange={handleCodeChange} 
+              theme={isDarkMode ? 'dark' : 'light'} 
+            />
+          </div>
+          
+          {/* Run Button (Floating) */}
+          <button
+            onClick={handleRun}
+            disabled={isRunning || !activeFile}
+            className={`
+              absolute bottom-6 right-6 z-10 w-12 h-12 rounded-full shadow-lg flex items-center justify-center transition-all transform hover:scale-105 active:scale-95
+              ${isRunning ? 'bg-gray-500 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700 text-white'}
+            `}
+            title="Run Code (Cmd+R)"
+          >
+             {isRunning ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"/> : <Play size={20} className="ml-1" />}
+          </button>
+        </div>
+
+        {/* Right Panel (Terminal / Preview / Chat) */}
+        {showPanel && (
+          <div className="w-[30vw] min-w-[350px] flex flex-col border-l border-gray-200 dark:border-gray-800 bg-white dark:bg-[#0d1117] transition-all">
+            <div className="flex items-center border-b border-gray-200 dark:border-gray-800">
+              <button 
+                onClick={() => { setActivePanel('terminal'); setIsPreviewActive(false); }}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium flex items-center justify-center space-x-2 transition-colors ${activePanel === 'terminal' && !isPreviewActive ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                <TerminalIcon size={14} />
+                <span>Console</span>
+              </button>
+              <button 
+                onClick={() => { setActivePanel('terminal'); setIsPreviewActive(true); }}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium flex items-center justify-center space-x-2 transition-colors ${isPreviewActive ? 'text-blue-600 dark:text-blue-400 border-b-2 border-blue-600 dark:border-blue-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                <Globe size={14} />
+                <span>Web</span>
+              </button>
+              <button 
+                onClick={() => { setActivePanel('chat'); setIsPreviewActive(false); }}
+                className={`flex-1 px-4 py-2.5 text-sm font-medium flex items-center justify-center space-x-2 transition-colors ${activePanel === 'chat' ? 'text-purple-600 dark:text-purple-400 border-b-2 border-purple-600 dark:border-purple-400' : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}
+              >
+                <MessageSquare size={14} />
+                <span>AI Chat</span>
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-hidden relative">
+              {isPreviewActive ? (
+                <WebPreview 
+                    html={files.find(f => f.name === 'index.html')?.content || '<h1>No index.html found</h1>'} 
+                    refreshTrigger={previewTrigger}
+                />
+              ) : activePanel === 'terminal' ? (
+                <Terminal 
+                  messages={terminalMessages} 
+                  isRunning={isRunning} 
+                  onClear={() => setTerminalMessages([])} 
+                />
+              ) : (
+                <AIChatPanel 
+                   messages={chatMessages} 
+                   onSendMessage={handleAiChat} 
+                   onDebugProject={handleDebugProject}
+                   onGenerateImage={handleGenerateImage}
+                   onGenerateFile={handleChatFileCreate}
+                   isLoading={chatMessages.length > 0 && chatMessages[chatMessages.length - 1].role === 'user'}
+                   onClose={() => setShowPanel(false)}
+                   activeFileName={activeFile?.name}
+                />
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Footer / Status Bar */}
+      <footer className="h-6 bg-indigo-600 text-indigo-100 flex items-center justify-between px-3 text-[10px] select-none shrink-0 z-30">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-1 hover:text-white cursor-pointer">
+            <GitBranch size={10} />
+            <span>main</span>
+          </div>
+          <div className="flex items-center space-x-1">
+             {lastSaved ? (
+                 <>
+                    <CheckCircle size={10} className="text-green-300" />
+                    <span>Saved {lastSaved.toLocaleTimeString()}</span>
+                 </>
+             ) : <span>Unsaved</span>}
+          </div>
+        </div>
+        <div className="flex items-center space-x-4">
+          <span>{activeFile?.language || 'Plain Text'}</span>
+          <span>Spaces: 2</span>
+          <span>UTF-8</span>
+        </div>
+      </footer>
+
+      {/* Modals */}
+      <GitHubModal 
+        isOpen={isGitHubModalOpen} 
+        onClose={() => setIsGitHubModalOpen(false)} 
+        user={githubUser}
+        onLogout={() => { localStorage.removeItem('pavel_auth_token'); setGithubUser(null); }}
+        files={files}
+      />
+
+      <CommandPalette 
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        commands={commands}
+      />
     </div>
   );
 }
