@@ -11,7 +11,7 @@ import { CommandPalette, CommandItem } from './components/CommandPalette';
 import { executeCode, chatWithAi, generateFileContent, analyzeProject, generateImage } from './services/geminiService';
 import { FileSystem, FileNode, Tab, TerminalMessage, ChatMessage, PanelMode } from './types';
 import { INITIAL_FILES, LANGUAGE_MAP } from './constants';
-import { getCurrentUser, type GitHubUser } from './services/githubService';
+import { getCurrentUser, GitHubUser } from './services/githubService';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -99,12 +99,12 @@ export default function App() {
       // Perform save
       localStorage.setItem('pavel-ai-tools-files', JSON.stringify(files));
       
-      // Visual delay
+      // Visual delay and transition to saved
       setTimeout(() => {
         setLastSavedAt(new Date());
         setSaveStatus('saved');
-      }, 800);
-    }, 2000); // 2 second debounce
+      }, 500);
+    }, 1500); // 1.5 second debounce for responsiveness
 
     return () => clearTimeout(timer);
   }, [files]);
@@ -468,24 +468,24 @@ export default function App() {
             <GitBranch size={10} />
             <span>main</span>
           </div>
-          <div className="flex items-center space-x-2 min-w-[120px]">
+          <div className="flex items-center space-x-2 min-w-[140px] transition-all duration-300">
              {saveStatus === 'saving' ? (
-                 <>
-                    <Loader2 size={10} className="animate-spin text-amber-300" />
-                    <span className="text-amber-100 font-semibold">Saving...</span>
-                 </>
+                 <div className="flex items-center space-x-2 text-amber-300">
+                    <Loader2 size={12} className="animate-spin" />
+                    <span className="text-amber-100 font-medium">Saving...</span>
+                 </div>
              ) : saveStatus === 'unsaved' ? (
-                 <>
-                    <Circle size={10} className="fill-amber-400 text-amber-400 animate-pulse" />
+                 <div className="flex items-center space-x-2 text-amber-400 animate-pulse">
+                    <Circle size={10} fill="currentColor" />
                     <span className="text-amber-100 italic">Unsaved changes</span>
-                 </>
+                 </div>
              ) : saveStatus === 'saved' ? (
-                 <>
-                    <CheckCircle size={10} className="text-green-300" />
-                    <span>Saved recently {lastSavedAt ? `(${lastSavedAt.toLocaleTimeString()})` : ''}</span>
-                 </>
+                 <div className="flex items-center space-x-2 text-green-400">
+                    <CheckCircle size={12} />
+                    <span className="text-green-100">Saved recently {lastSavedAt ? `(${lastSavedAt.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})})` : ''}</span>
+                 </div>
              ) : (
-                 <span className="opacity-50">Ready</span>
+                 <span className="opacity-50 text-indigo-300">Ready</span>
              )}
           </div>
         </div>
