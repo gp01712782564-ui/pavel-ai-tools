@@ -336,29 +336,32 @@ router.post('/push', verifyToken, async (req, res) => {
            description: 'Created with Pavel AI Tools',
            auto_init: true
          }, { headers });
-         await new Promise(r => setTimeout(r, 2000));
+         // Wait for repo propagation
+         await new Promise(r => setTimeout(r, 4000));
       } else {
         throw e;
       }
     }
 
-    // 2. Get Branch Reference
+    // 2. Get Branch Reference (to find parent commit)
     let refData = await getBranchSha(username, REPO, headers);
     
-    // Init if empty
+    // Init if empty or just created
     if (!refData) {
         try {
             await axios.put(\`https://api.github.com/repos/\${username}/\${REPO}/contents/README.md\`, {
                 message: "Initial commit",
                 content: Buffer.from("# Pavel AI Tools Project").toString('base64')
             }, { headers });
-            await new Promise(r => setTimeout(r, 1000));
+            await new Promise(r => setTimeout(r, 2000));
             refData = await getBranchSha(username, REPO, headers);
         } catch (initErr) {
-             throw new Error("Failed to initialize repository.");
+             console.error("Init Error:", initErr.response?.data);
+             // If init fails, we might still try to push if the repo exists but is empty
         }
     }
-
+    
+    // If still no ref, we can't proceed with standard flow
     if (!refData) throw new Error("Could not find a valid branch (main/master).");
 
     const { sha: latestCommitSha, branch } = refData;
@@ -396,13 +399,12 @@ router.post('/push', verifyToken, async (req, res) => {
     }
 
     // 4. Create Tree
-    // Using base_tree ensures we only update changed files and keep others
-    const commitRes = await axios.get(\`https://api.github.com/repos/\${username}/\${REPO}/git/commits/\${latestCommitSha}\`, { headers });
-    const baseTreeSha = commitRes.data.tree.sha;
-
+    // IMPORTANT: We DO NOT provide base_tree. This ensures the new tree *replaces* the old one completely.
+    // This allows us to handle deleted files (if they are not in the payload, they disappear).
+    // This effectively "syncs" the repo to match the local state exactly.
     const treeRes = await axios.post(\`https://api.github.com/repos/\${username}/\${REPO}/git/trees\`, {
         tree: treeItems,
-        base_tree: baseTreeSha 
+        // base_tree: baseTreeSha // REMOVED to force exact sync
     }, { headers });
     
     const newTreeSha = treeRes.data.sha;

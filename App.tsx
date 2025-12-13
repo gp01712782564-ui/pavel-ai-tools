@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Play, Terminal as TerminalIcon, Bot, Save, Moon, Sun, Github, GitBranch, Share2, MessageSquare, LayoutTemplate, User, Users, Globe, ChevronDown, CheckCircle, Code2, Loader2 } from 'lucide-react';
+import { Play, Terminal as TerminalIcon, Bot, Save, Moon, Sun, Github, GitBranch, Share2, MessageSquare, LayoutTemplate, User, Users, Globe, ChevronDown, CheckCircle, Code2, Loader2, Circle, Clock } from 'lucide-react';
 import { FileExplorer, FileExplorerRef } from './components/FileExplorer';
 import { CodeEditor } from './components/CodeEditor';
 import { Terminal } from './components/Terminal';
@@ -48,8 +48,10 @@ export default function App() {
   const [showPanel, setShowPanel] = useState(true);
   const [isPreviewActive, setIsPreviewActive] = useState(false);
   const [previewTrigger, setPreviewTrigger] = useState(0);
-  const [lastSaved, setLastSaved] = useState<Date | null>(null);
-  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  
+  // Save State
+  const [saveStatus, setSaveStatus] = useState<'ready' | 'unsaved' | 'saving' | 'saved'>('ready');
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
   
   // Modals & User
   const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
@@ -82,24 +84,26 @@ export default function App() {
     }
   }, [isDarkMode]);
 
-  // Enhanced Auto-save: Debounce on file changes instead of rigid interval
+  // Enhanced Auto-save
   useEffect(() => {
     if (isFirstRender.current) {
       isFirstRender.current = false;
       return;
     }
 
+    setSaveStatus('unsaved');
+
     const timer = setTimeout(() => {
-      setIsAutoSaving(true);
+      setSaveStatus('saving');
       
       // Perform save
       localStorage.setItem('pavel-ai-tools-files', JSON.stringify(files));
       
-      // Add slight delay for visual feedback
+      // Visual delay
       setTimeout(() => {
-        setLastSaved(new Date());
-        setIsAutoSaving(false);
-      }, 600);
+        setLastSavedAt(new Date());
+        setSaveStatus('saved');
+      }, 800);
     }, 2000); // 2 second debounce
 
     return () => clearTimeout(timer);
@@ -465,15 +469,20 @@ export default function App() {
             <span>main</span>
           </div>
           <div className="flex items-center space-x-2 min-w-[120px]">
-             {isAutoSaving ? (
+             {saveStatus === 'saving' ? (
                  <>
                     <Loader2 size={10} className="animate-spin text-amber-300" />
                     <span className="text-amber-100 font-semibold">Saving...</span>
                  </>
-             ) : lastSaved ? (
+             ) : saveStatus === 'unsaved' ? (
+                 <>
+                    <Circle size={10} className="fill-amber-400 text-amber-400 animate-pulse" />
+                    <span className="text-amber-100 italic">Unsaved changes</span>
+                 </>
+             ) : saveStatus === 'saved' ? (
                  <>
                     <CheckCircle size={10} className="text-green-300" />
-                    <span>Saved {lastSaved.toLocaleTimeString()}</span>
+                    <span>Saved recently {lastSavedAt ? `(${lastSavedAt.toLocaleTimeString()})` : ''}</span>
                  </>
              ) : (
                  <span className="opacity-50">Ready</span>
