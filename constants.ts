@@ -299,22 +299,27 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
-// Helper: Get Branch SHA with Fallback
-const getBranchSha = async (username, repo, headers) => {
+// Helper: Get Default Branch and SHA
+const getRepoState = async (username, repo, headers) => {
   try {
-    const res = await axios.get(\`https://api.github.com/repos/\${username}/\${repo}/git/ref/heads/main\`, { headers });
-    return { sha: res.data.object.sha, branch: 'main' };
+    // 1. Get Repo Info for Default Branch
+    const repoInfo = await axios.get(\`https://api.github.com/repos/\${username}/\${repo}\`, { headers });
+    const defaultBranch = repoInfo.data.default_branch || 'main';
+    
+    // 2. Get Ref for Default Branch
+    const refRes = await axios.get(\`https://api.github.com/repos/\${username}/\${repo}/git/ref/heads/\${defaultBranch}\`, { headers });
+    return { 
+      sha: refRes.data.object.sha, 
+      branch: defaultBranch 
+    };
   } catch (e) {
-    try {
-      const res = await axios.get(\`https://api.github.com/repos/\${username}/\${repo}/git/ref/heads/master\`, { headers });
-      return { sha: res.data.object.sha, branch: 'master' };
-    } catch (e2) {
-      return null; 
-    }
+    // If repo exists but empty, ref might 409 or 404 depending on state
+    if (e.response?.status === 409 || e.response?.status === 404) return { sha: null, branch: 'main', empty: true };
+    return null;
   }
 };
 
-// ATOMIC PUSH Using Git Data API (Blobs -> Tree -> Commit -> Ref)
+// ATOMIC PUSH Using Git Data API
 router.post('/push', verifyToken, async (req, res) => {
   const { files } = req.body; 
   const { accessToken, username } = req.user;
@@ -343,33 +348,29 @@ router.post('/push', verifyToken, async (req, res) => {
       }
     }
 
-    // 2. Get Branch Reference (to find parent commit)
-    let refData = await getBranchSha(username, REPO, headers);
+    // 2. Get Latest State (Branch + SHA)
+    let repoState = await getRepoState(username, REPO, headers);
     
-    // Init if empty or just created
-    if (!refData) {
+    // Init if we can't find state (e.g. empty repo)
+    if (!repoState) {
         try {
             await axios.put(\`https://api.github.com/repos/\${username}/\${REPO}/contents/README.md\`, {
                 message: "Initial commit",
                 content: Buffer.from("# Pavel AI Tools Project").toString('base64')
             }, { headers });
             await new Promise(r => setTimeout(r, 2000));
-            refData = await getBranchSha(username, REPO, headers);
+            repoState = await getRepoState(username, REPO, headers);
         } catch (initErr) {
              console.error("Init Error:", initErr.response?.data);
-             // If init fails, we might still try to push if the repo exists but is empty
         }
     }
     
-    // If still no ref, we can't proceed with standard flow
-    if (!refData) throw new Error("Could not find a valid branch (main/master).");
+    if (!repoState) throw new Error("Could not validate repository state. Please check GitHub permissions.");
 
-    const { sha: latestCommitSha, branch } = refData;
+    const { sha: latestCommitSha, branch } = repoState;
 
-    // 3. Create Blobs in Parallel (Faster & Consistent)
+    // 3. Create Blobs
     const treeItems = [];
-    
-    // Process blobs in chunks if needed, but here Promise.all is usually fine for <100 files
     const blobPromises = files.map(async (file) => {
         try {
             const blobRes = await axios.post(\`https://api.github.com/repos/\${username}/\${REPO}/git/blobs\`, {
@@ -384,27 +385,19 @@ router.post('/push', verifyToken, async (req, res) => {
                 sha: blobRes.data.sha
             };
         } catch (blobErr) {
-            console.error(\`Blob creation failed for \${file.path}\`, blobErr.message);
+            console.error(\`Blob failed: \${file.path}\`);
             return null;
         }
     });
 
     const results = await Promise.all(blobPromises);
-    results.forEach(item => {
-        if (item) treeItems.push(item);
-    });
+    results.forEach(item => { if (item) treeItems.push(item); });
 
-    if (treeItems.length === 0) {
-        return res.status(400).json({ error: "No valid files to push" });
-    }
+    if (treeItems.length === 0) return res.status(400).json({ error: "No valid files to push" });
 
     // 4. Create Tree
-    // IMPORTANT: We DO NOT provide base_tree. This ensures the new tree *replaces* the old one completely.
-    // This allows us to handle deleted files (if they are not in the payload, they disappear).
-    // This effectively "syncs" the repo to match the local state exactly.
     const treeRes = await axios.post(\`https://api.github.com/repos/\${username}/\${REPO}/git/trees\`, {
         tree: treeItems,
-        // base_tree: baseTreeSha // REMOVED to force exact sync
     }, { headers });
     
     const newTreeSha = treeRes.data.sha;
@@ -413,17 +406,18 @@ router.post('/push', verifyToken, async (req, res) => {
     const newCommitRes = await axios.post(\`https://api.github.com/repos/\${username}/\${REPO}/git/commits\`, {
         message: 'Deployed via Pavel AI Tools',
         tree: newTreeSha,
-        parents: [latestCommitSha]
+        parents: latestCommitSha ? [latestCommitSha] : []
     }, { headers });
     
     const newCommitSha = newCommitRes.data.sha;
 
-    // 6. Update HEAD
+    // 6. Update Reference (Force Update to handle conflict/non-fast-forward)
     await axios.patch(\`https://api.github.com/repos/\${username}/\${REPO}/git/refs/heads/\${branch}\`, {
-        sha: newCommitSha
+        sha: newCommitSha,
+        force: true // Ensures we overwrite if history diverged (sync mode)
     }, { headers });
 
-    res.json({ success: true, repoUrl: \`https://github.com/\${username}/\${REPO}\` });
+    res.json({ success: true, repoUrl: \`https://github.com/\${username}/\${REPO}\`, branch });
 
   } catch (err) {
     console.error('GitHub Push Error:', err.response?.data || err.message);

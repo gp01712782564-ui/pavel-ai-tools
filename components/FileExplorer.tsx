@@ -16,7 +16,7 @@ import {
   Sparkles,
   Plus,
   Save,
-  CloudUpload,
+  UploadCloud,
   MoreVertical,
   Pencil,
   Trash
@@ -500,7 +500,7 @@ export const FileExplorer = forwardRef<FileExplorerRef, FileExplorerProps>(({
                 className="flex items-center justify-center space-x-1 bg-amber-500 hover:bg-amber-600 text-white py-2 rounded-md font-semibold text-xs transition-colors shadow-lg"
                 title="Save project to GitHub"
               >
-                  <CloudUpload size={14} />
+                  <UploadCloud size={14} />
                   <span>Save</span>
               </button>
           </div>

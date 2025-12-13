@@ -27,10 +27,11 @@ const getFullPath = (node: FileNode, allFiles: FileSystem): string | null => {
 // Safely get API URL avoiding "Cannot read properties of undefined"
 const getBaseUrl = (): string => {
   try {
+    // Check if import.meta exists and has env property safely
     // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_URL) {
-      // @ts-ignore
-      return import.meta.env.VITE_API_URL;
+    const env = import.meta?.env;
+    if (env && env.VITE_API_URL) {
+      return env.VITE_API_URL;
     }
   } catch {
     // Ignore
